@@ -2,89 +2,122 @@ pipeline {
 
     agent any
 
+    options {
+        skipDefaultCheckout(true)
+    }
+
     parameters {
         gitParameter(
             name: 'BRANCH_NAME',
             type: 'PT_BRANCH',
-            description: 'Select the GitHub branch to build',
             branchFilter: 'origin/(.*)',
             defaultValue: 'main',
             selectedValue: 'DEFAULT',
-            sortMode: 'ASCENDING',
-            useRepository: 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
+            sortMode: 'DESCENDING_SMART',
+            description: 'Select the GitHub branch to build'
         )
     }
 
     environment {
-        GIT_REPO = 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
-        SONARQUBE_SERVER = 'SonarQube'
+        GIT_URL = 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
+        SONARQUBE_SERVER = 'SonarQube-Server'
     }
 
     stages {
 
         stage('Fetch Branch') {
+
             steps {
+
                 echo "Fetching latest branch information from GitHub..."
 
+                deleteDir()
+
+                git branch: 'main',
+                    url: "${GIT_URL}"
+
                 sh '''
-                    rm -rf .git
-                    git init
-                    git remote add origin ${GIT_REPO}
+                    echo "Fetching all branches..."
                     git fetch --all --prune
+
+                    echo ""
+                    echo "Available branches:"
+                    git branch -r
                 '''
 
                 echo "Selected Branch: ${params.BRANCH_NAME}"
             }
         }
 
+
         stage('Checkout') {
+
             steps {
+
                 echo "Checking out branch: ${params.BRANCH_NAME}"
 
                 sh '''
                     git checkout -B ${BRANCH_NAME} origin/${BRANCH_NAME}
                 '''
 
-                echo "Checkout completed successfully"
-                echo "Selected Branch: ${params.BRANCH_NAME}"
+                sh '''
+                    echo "========================================"
+                    echo "Checked out branch:"
+                    git branch --show-current
+
+                    echo ""
+                    echo "Commit:"
+                    git rev-parse HEAD
+
+                    echo "========================================"
+                '''
             }
         }
 
+
         stage('SonarQube Analysis') {
+
             steps {
 
-                echo "Starting SonarQube analysis..."
+                echo "Starting SonarQube Analysis..."
 
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
 
                     sh '''
                         mvn clean verify sonar:sonar \
-                        -Dsonar.projectKey=devops-demo \
-                        -Dsonar.projectName=DevOps-Demo \
-                        -Dsonar.host.url=$SONAR_HOST_URL
+                        -Dsonar.projectKey=devops-sonarqube-demo \
+                        -Dsonar.projectName=devops-sonarqube-demo
                     '''
                 }
+
+                echo "SonarQube analysis completed."
             }
         }
 
+
         stage('Quality Gate') {
+
             steps {
 
                 echo "Waiting for SonarQube Quality Gate..."
 
-                timeout(time: 5, unit: 'MINUTES') {
+                timeout(time: 10, unit: 'MINUTES') {
 
                     waitForQualityGate abortPipeline: true
                 }
 
-                echo "SonarQube Quality Gate PASSED"
+                echo "========================================"
+                echo "CODE QUALITY GATE PASSED"
+                echo "========================================"
             }
         }
     }
 
+
     post {
 
         success {
+
             echo "========================================"
             echo "PIPELINE SUCCESS"
             echo "Branch: ${params.BRANCH_NAME}"
@@ -93,6 +126,7 @@ pipeline {
         }
 
         failure {
+
             echo "========================================"
             echo "PIPELINE FAILED"
             echo "Branch: ${params.BRANCH_NAME}"
