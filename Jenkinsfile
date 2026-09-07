@@ -26,9 +26,7 @@ pipeline {
     stages {
 
         stage('Fetch Branch') {
-
             steps {
-
                 echo "Fetching latest branch information from GitHub..."
 
                 deleteDir()
@@ -49,11 +47,8 @@ pipeline {
             }
         }
 
-
         stage('Checkout') {
-
             steps {
-
                 echo "Checking out branch: ${params.BRANCH_NAME}"
 
                 sh '''
@@ -74,15 +69,11 @@ pipeline {
             }
         }
 
-
         stage('SonarQube Analysis') {
-
             steps {
-
                 echo "Starting SonarQube Analysis..."
 
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
-
                     sh '''
                         mvn clean verify sonar:sonar \
                         -Dsonar.projectKey=devops-sonarqube-demo \
@@ -94,15 +85,37 @@ pipeline {
             }
         }
 
+        stage('Approval') {
+            steps {
+                script {
+                    timeout(time: 10, unit: 'MINUTES') {
+                        input(
+                            message: "SonarQube analysis completed. Do you approve the build?",
+                            ok: "Approve Build"
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo "Approval received."
+                echo "Starting application build..."
+
+                sh '''
+                    mvn clean package -DskipTests
+                '''
+
+                echo "Build completed successfully."
+            }
+        }
 
         stage('Quality Gate') {
-
             steps {
-
                 echo "Waiting for SonarQube Quality Gate..."
 
                 timeout(time: 10, unit: 'MINUTES') {
-
                     waitForQualityGate abortPipeline: true
                 }
 
@@ -113,24 +126,28 @@ pipeline {
         }
     }
 
-
     post {
 
         success {
-
             echo "========================================"
             echo "PIPELINE SUCCESS"
             echo "Branch: ${params.BRANCH_NAME}"
+            echo "Build: SUCCESS"
             echo "Code Quality Gate: PASSED"
             echo "========================================"
         }
 
         failure {
-
             echo "========================================"
             echo "PIPELINE FAILED"
             echo "Branch: ${params.BRANCH_NAME}"
-            echo "Code Quality Gate: FAILED"
+            echo "========================================"
+        }
+
+        aborted {
+            echo "========================================"
+            echo "PIPELINE ABORTED"
+            echo "Approval was not received."
             echo "========================================"
         }
     }
