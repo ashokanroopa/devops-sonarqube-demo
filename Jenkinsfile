@@ -20,39 +20,39 @@ pipeline {
 
     environment {
         GIT_URL = 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
+
         SONARQUBE_SERVER = 'SonarQube-Server'
+
+        NEXUS_URL = 'http://172.31.5.36:8081'
+
+        NEXUS_CREDENTIALS = 'nexus-credentials'
     }
 
     stages {
 
-        /*
-         * =====================================================
-         * STAGE 1: FETCH BRANCH
-         * =====================================================
-         */
+        // =====================================================
+        // 1. Fetch Branch
+        // =====================================================
 
         stage('Fetch Branch') {
 
             steps {
 
-                echo "Fetching latest branch information from GitHub..."
+                echo "========================================"
+                echo "Fetching Branch Information"
+                echo "========================================"
 
-                // Clean the Jenkins workspace
                 deleteDir()
 
-                // Clone the repository initially
                 git branch: 'main',
                     url: "${GIT_URL}"
 
-                // Fetch all remote branches
                 sh '''
                     echo "Fetching all branches..."
-
                     git fetch --all --prune
 
                     echo ""
                     echo "Available branches:"
-
                     git branch -r
                 '''
 
@@ -61,17 +61,17 @@ pipeline {
         }
 
 
-        /*
-         * =====================================================
-         * STAGE 2: CHECKOUT
-         * =====================================================
-         */
+        // =====================================================
+        // 2. Checkout
+        // =====================================================
 
         stage('Checkout') {
 
             steps {
 
-                echo "Checking out branch: ${params.BRANCH_NAME}"
+                echo "========================================"
+                echo "Checking Out Selected Branch"
+                echo "========================================"
 
                 sh '''
                     git checkout -B ${BRANCH_NAME} origin/${BRANCH_NAME}
@@ -79,8 +79,7 @@ pipeline {
 
                 sh '''
                     echo "========================================"
-
-                    echo "Checked out branch:"
+                    echo "Checked Out Branch:"
                     git branch --show-current
 
                     echo ""
@@ -93,17 +92,17 @@ pipeline {
         }
 
 
-        /*
-         * =====================================================
-         * STAGE 3: SONARQUBE ANALYSIS
-         * =====================================================
-         */
+        // =====================================================
+        // 3. SonarQube Analysis
+        // =====================================================
 
         stage('SonarQube Analysis') {
 
             steps {
 
-                echo "Starting SonarQube Analysis..."
+                echo "========================================"
+                echo "Starting SonarQube Analysis"
+                echo "========================================"
 
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
 
@@ -119,11 +118,33 @@ pipeline {
         }
 
 
-        /*
-         * =====================================================
-         * STAGE 4: MANUAL APPROVAL
-         * =====================================================
-         */
+        // =====================================================
+        // 4. Quality Gate
+        // =====================================================
+
+        stage('Quality Gate') {
+
+            steps {
+
+                echo "========================================"
+                echo "Waiting for SonarQube Quality Gate"
+                echo "========================================"
+
+                timeout(time: 10, unit: 'MINUTES') {
+
+                    waitForQualityGate abortPipeline: true
+                }
+
+                echo "========================================"
+                echo "CODE QUALITY GATE PASSED"
+                echo "========================================"
+            }
+        }
+
+
+        // =====================================================
+        // 5. Manual Approval
+        // =====================================================
 
         stage('Approval') {
 
@@ -132,53 +153,44 @@ pipeline {
                 script {
 
                     def approval = input(
-
-                        message: 'SonarQube analysis completed. Do you approve the build?',
-
-                        ok: 'Submit',
-
+                        message: 'Do you approve the build?',
                         parameters: [
                             choice(
                                 name: 'APPROVAL',
-                                choices: [
-                                    'APPROVE',
-                                    'DENY'
-                                ],
-                                description: 'Select APPROVE to continue the build or DENY to stop the pipeline'
+                                choices: 'APPROVE\nDENY',
+                                description: 'Select APPROVE to continue or DENY to stop the pipeline'
                             )
                         ]
                     )
+
+                    echo "Approval decision: ${approval}"
 
                     if (approval == 'APPROVE') {
 
                         echo "========================================"
                         echo "BUILD APPROVED"
-                        echo "Continuing to Build stage..."
+                        echo "Proceeding to Build stage"
                         echo "========================================"
 
                     } else {
 
-                        error(
-                            "BUILD DENIED BY APPROVER. PIPELINE STOPPED."
-                        )
+                        error("Build denied by approver. Pipeline stopped.")
                     }
                 }
             }
         }
 
 
-        /*
-         * =====================================================
-         * STAGE 5: BUILD
-         * =====================================================
-         */
+        // =====================================================
+        // 6. Maven Build
+        // =====================================================
 
         stage('Build') {
 
             steps {
 
                 echo "========================================"
-                echo "Starting Application Build..."
+                echo "Starting Application Build"
                 echo "========================================"
 
                 sh '''
@@ -192,79 +204,105 @@ pipeline {
         }
 
 
-        /*
-         * =====================================================
-         * STAGE 6: QUALITY GATE
-         * =====================================================
-         */
+        // =====================================================
+        // 7. Nexus Upload
+        // =====================================================
 
-        stage('Quality Gate') {
+        stage('Push Artifact to Nexus') {
 
             steps {
 
-                echo "Waiting for SonarQube Quality Gate..."
+                echo "========================================"
+                echo "Uploading Artifact to Nexus"
+                echo "========================================"
 
-                timeout(
-                    time: 10,
-                    unit: 'MINUTES'
-                ) {
-
-                    waitForQualityGate(
-                        abortPipeline: true
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${NEXUS_CREDENTIALS}",
+                        usernameVariable: 'NEXUS_USERNAME',
+                        passwordVariable: 'NEXUS_PASSWORD'
                     )
+                ]) {
+
+                    sh '''
+                        echo "Uploading Maven artifact..."
+
+                        mvn deploy -DskipTests
+                    '''
                 }
 
                 echo "========================================"
-                echo "CODE QUALITY GATE PASSED"
+                echo "ARTIFACT UPLOADED TO NEXUS"
                 echo "========================================"
             }
         }
     }
 
 
-    /*
-     * =========================================================
-     * POST ACTIONS
-     * =========================================================
-     */
+    // =========================================================
+    // POST ACTIONS
+    // =========================================================
 
     post {
 
         success {
 
-            echo "========================================"
-            echo "PIPELINE SUCCESS"
-            echo "========================================"
+            echo """
+            ========================================
+                    PIPELINE SUCCESS
+            ========================================
 
-            echo "Branch: ${params.BRANCH_NAME}"
-            echo "Build: SUCCESS"
-            echo "Code Quality Gate: PASSED"
+            Branch:
+            ${params.BRANCH_NAME}
 
-            echo "========================================"
+            SonarQube:
+            Quality Gate PASSED
+
+            Approval:
+            APPROVED
+
+            Build:
+            SUCCESS
+
+            Nexus:
+            ARTIFACT UPLOADED
+
+            ========================================
+            """
         }
 
 
         failure {
 
-            echo "========================================"
-            echo "PIPELINE FAILED"
-            echo "========================================"
+            echo """
+            ========================================
+                    PIPELINE FAILED
+            ========================================
 
-            echo "Branch: ${params.BRANCH_NAME}"
+            Branch:
+            ${params.BRANCH_NAME}
 
-            echo "========================================"
+            Please check the Jenkins Console Output.
+
+            ========================================
+            """
         }
 
 
         aborted {
 
-            echo "========================================"
-            echo "PIPELINE ABORTED"
-            echo "========================================"
+            echo """
+            ========================================
+                    PIPELINE ABORTED
+            ========================================
 
-            echo "Branch: ${params.BRANCH_NAME}"
+            Branch:
+            ${params.BRANCH_NAME}
 
-            echo "========================================"
+            Pipeline was aborted by user or timeout.
+
+            ========================================
+            """
         }
     }
 }
