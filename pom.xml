@@ -7,39 +7,55 @@
 
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- Spring Boot Parent -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.5</version>
+        <relativePath/>
+    </parent>
+
     <!-- Project Information -->
     <groupId>com.example</groupId>
     <artifactId>devops-sonarqube-demo</artifactId>
     <version>1.0</version>
+    <name>devops-sonarqube-demo</name>
+    <description>DevOps SonarQube Demo Application</description>
 
     <!-- Java Version -->
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-
-        <junit.version>5.10.2</junit.version>
     </properties>
-
 
     <!-- Dependencies -->
     <dependencies>
 
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
         <!-- JUnit 5 -->
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${junit.version}</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
 
     </dependencies>
 
-
     <!-- Build Plugins -->
     <build>
 
         <plugins>
+
+            <!-- Spring Boot Maven Plugin -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
 
             <!-- SonarQube Maven Plugin -->
             <plugin>
@@ -47,7 +63,6 @@
                 <artifactId>sonar-maven-plugin</artifactId>
                 <version>5.7.0.6970</version>
             </plugin>
-
 
             <!-- JaCoCo Code Coverage -->
             <plugin>
@@ -57,18 +72,15 @@
 
                 <executions>
 
-                    <!-- Attach JaCoCo Agent -->
                     <execution>
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
                     </execution>
 
-                    <!-- Generate Coverage Report -->
                     <execution>
                         <id>report</id>
                         <phase>verify</phase>
-
                         <goals>
                             <goal>report</goal>
                         </goals>
@@ -76,7 +88,6 @@
 
                 </executions>
             </plugin>
-
 
             <!-- Maven Surefire Plugin -->
             <plugin>
@@ -89,7 +100,6 @@
 
     </build>
 
-
     <!-- Nexus Repository -->
     <distributionManagement>
 
@@ -98,6 +108,7 @@
             <url>http://172.31.5.36:8081/repository/maven-releases/</url>
         </repository>
 
-</distributionManagement>
+    </distributionManagement>
 
 </project>
+
