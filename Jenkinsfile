@@ -7,6 +7,7 @@ pipeline {
     }
 
     parameters {
+
         gitParameter(
             name: 'BRANCH_NAME',
             type: 'PT_BRANCH',
@@ -19,13 +20,30 @@ pipeline {
     }
 
     environment {
+
+        // GitHub
         GIT_URL = 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
 
+        // SonarQube
         SONARQUBE_SERVER = 'SonarQube-Server'
 
-        NEXUS_URL = 'http://172.31.5.36:8081'
+        // AWS
+        AWS_REGION = 'ap-south-1'
 
-        NEXUS_CREDENTIALS = 'nexus-credentials'
+        // ECR repository name
+        ECR_REPOSITORY = 'devops-sonarqube-demo'
+
+        // Docker image tag
+        IMAGE_TAG = "v${BUILD_NUMBER}"
+
+        // EC2 SSH Jenkins credential
+        EC2_SSH_CREDENTIALS = 'ec2-ssh-key'
+
+        // EC2 deployment server
+        EC2_HOST = '<YOUR-EC2-PUBLIC-IP>'
+
+        // EC2 user
+        EC2_USER = 'ubuntu'
     }
 
     stages {
@@ -44,15 +62,19 @@ pipeline {
 
                 deleteDir()
 
-                git branch: 'main',
+                git(
+                    branch: 'main',
                     url: "${GIT_URL}"
+                )
 
                 sh '''
                     echo "Fetching all branches..."
+
                     git fetch --all --prune
 
                     echo ""
                     echo "Available branches:"
+
                     git branch -r
                 '''
 
@@ -62,7 +84,7 @@ pipeline {
 
 
         // =====================================================
-        // 2. Checkout
+        // 2. Checkout Selected Branch
         // =====================================================
 
         stage('Checkout') {
@@ -169,7 +191,7 @@ pipeline {
 
                         echo "========================================"
                         echo "BUILD APPROVED"
-                        echo "Proceeding to Build stage"
+                        echo "Proceeding to Docker Build"
                         echo "========================================"
 
                     } else {
@@ -205,35 +227,186 @@ pipeline {
 
 
         // =====================================================
-        // 7. Nexus Upload
+        // 7. Docker Build
         // =====================================================
 
-        stage('Push Artifact to Nexus') {
+        stage('Docker Build') {
 
             steps {
 
                 echo "========================================"
-                echo "Uploading Artifact to Nexus"
+                echo "Building Docker Image"
                 echo "========================================"
 
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: "${NEXUS_CREDENTIALS}",
-                        usernameVariable: 'NEXUS_USERNAME',
-                        passwordVariable: 'NEXUS_PASSWORD'
-                    )
-                ]) {
+                sh '''
+                    docker build \
+                    -t ${ECR_REPOSITORY}:${IMAGE_TAG} .
+                '''
+
+                echo "Docker image created:"
+                echo "${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+                sh '''
+                    docker images
+                '''
+            }
+        }
+
+
+        // =====================================================
+        // 8. Login to AWS ECR
+        // =====================================================
+
+        stage('ECR Login') {
+
+            steps {
+
+                echo "========================================"
+                echo "Logging into AWS ECR"
+                echo "========================================"
+
+                sh '''
+                    ACCOUNT_ID=$(aws sts get-caller-identity \
+                    --query Account \
+                    --output text)
+
+                    ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+                    echo "ECR Registry:"
+                    echo "${ECR_URI}"
+
+                    aws ecr get-login-password \
+                    --region ${AWS_REGION} | \
+                    docker login \
+                    --username AWS \
+                    --password-stdin ${ECR_URI}
+                '''
+            }
+        }
+
+
+        // =====================================================
+        // 9. Tag Docker Image
+        // =====================================================
+
+        stage('Tag Image') {
+
+            steps {
+
+                echo "========================================"
+                echo "Tagging Docker Image"
+                echo "========================================"
+
+                sh '''
+                    ACCOUNT_ID=$(aws sts get-caller-identity \
+                    --query Account \
+                    --output text)
+
+                    ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}
+
+                    docker tag \
+                    ${ECR_REPOSITORY}:${IMAGE_TAG} \
+                    ${ECR_URI}:${IMAGE_TAG}
+
+                    echo "Image tagged as:"
+                    echo "${ECR_URI}:${IMAGE_TAG}"
+                '''
+            }
+        }
+
+
+        // =====================================================
+        // 10. Push Image to ECR
+        // =====================================================
+
+        stage('Push Image to ECR') {
+
+            steps {
+
+                echo "========================================"
+                echo "Pushing Docker Image to ECR"
+                echo "========================================"
+
+                sh '''
+                    ACCOUNT_ID=$(aws sts get-caller-identity \
+                    --query Account \
+                    --output text)
+
+                    ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}
+
+                    docker push ${ECR_URI}:${IMAGE_TAG}
+                '''
+
+                echo "========================================"
+                echo "DOCKER IMAGE PUSHED TO ECR"
+                echo "========================================"
+            }
+        }
+
+
+        // =====================================================
+        // 11. Deploy to EC2
+        // =====================================================
+
+        stage('Deploy to EC2') {
+
+            steps {
+
+                echo "========================================"
+                echo "Deploying Application to EC2"
+                echo "========================================"
+
+                sshagent(["${EC2_SSH_CREDENTIALS}"]) {
 
                     sh '''
-                        echo "Uploading Maven artifact..."
+                        ACCOUNT_ID=$(aws sts get-caller-identity \
+                        --query Account \
+                        --output text)
 
-                        mvn deploy -DskipTests
+                        ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}
+
+                        echo "Deploying image:"
+                        echo "${ECR_URI}:${IMAGE_TAG}"
+
+                        ssh -o StrictHostKeyChecking=no \
+                        ${EC2_USER}@${EC2_HOST} "
+
+                            echo 'Logging into ECR...'
+
+                            aws ecr get-login-password \
+                            --region ${AWS_REGION} | \
+                            docker login \
+                            --username AWS \
+                            --password-stdin \
+                            ${ECR_URI}
+
+                            echo 'Pulling latest image...'
+
+                            docker pull ${ECR_URI}:${IMAGE_TAG}
+
+                            echo 'Stopping old container...'
+
+                            docker stop devops-app || true
+
+                            echo 'Removing old container...'
+
+                            docker rm devops-app || true
+
+                            echo 'Starting new container...'
+
+                            docker run -d \
+                            --name devops-app \
+                            -p 8080:8080 \
+                            ${ECR_URI}:${IMAGE_TAG}
+
+                            echo 'Deployment completed.'
+
+                            echo 'Running containers:'
+
+                            docker ps
+                        "
                     '''
                 }
-
-                echo "========================================"
-                echo "ARTIFACT UPLOADED TO NEXUS"
-                echo "========================================"
             }
         }
     }
@@ -261,11 +434,17 @@ pipeline {
             Approval:
             APPROVED
 
-            Build:
-            SUCCESS
+            Docker:
+            IMAGE BUILT
 
-            Nexus:
-            ARTIFACT UPLOADED
+            ECR:
+            IMAGE PUSHED
+
+            EC2:
+            DEPLOYMENT SUCCESSFUL
+
+            Image Tag:
+            ${IMAGE_TAG}
 
             ========================================
             """
@@ -305,4 +484,4 @@ pipeline {
             """
         }
     }
-}
+}             
