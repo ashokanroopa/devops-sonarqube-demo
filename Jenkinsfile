@@ -21,31 +21,47 @@ pipeline {
 
     environment {
 
+        // =====================================================
         // GitHub
+        // =====================================================
+
         GIT_URL = 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
 
+
+        // =====================================================
         // SonarQube
+        // =====================================================
+
         SONARQUBE_SERVER = 'SonarQube-Server'
         SONAR_TOKEN_CREDENTIAL = 'sonarqube-token1'
 
-        // AWS
-        AWS_REGION = 'ap-south-1'
 
-        // ECR repository name
+        // =====================================================
+        // AWS / ECR
+        // =====================================================
+
+        AWS_REGION = 'ap-south-1'
+        AWS_ACCOUNT_ID = '974066991334'
         ECR_REPOSITORY = 'devops-sonarqube-demo'
 
-        // Docker image tag
         IMAGE_TAG = "v${BUILD_NUMBER}"
 
-        // EC2 SSH Jenkins credential
+        ECR_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
+
+
+        // =====================================================
+        // Application EC2
+        // =====================================================
+
         EC2_SSH_CREDENTIALS = 'ec2-ssh-key'
 
-        // EC2 deployment server
-        EC2_HOST = '<YOUR-EC2-PUBLIC-IP>'
+        EC2_HOST = '172.31.3.250'
 
-        // EC2 user
         EC2_USER = 'ubuntu'
+
+        APP_DIRECTORY = '/home/ubuntu/devops-sonarqube-demo'
     }
+
 
     stages {
 
@@ -185,7 +201,7 @@ pipeline {
                 script {
 
                     def approval = input(
-                        message: 'Do you approve the build?',
+                        message: 'Do you approve the deployment?',
                         parameters: [
                             choice(
                                 name: 'APPROVAL',
@@ -200,13 +216,12 @@ pipeline {
                     if (approval == 'APPROVE') {
 
                         echo "========================================"
-                        echo "BUILD APPROVED"
-                        echo "Proceeding to Docker Build"
+                        echo "DEPLOYMENT APPROVED"
                         echo "========================================"
 
                     } else {
 
-                        error("Build denied by approver. Pipeline stopped.")
+                        error("Deployment denied by approver. Pipeline stopped.")
                     }
                 }
             }
@@ -214,15 +229,15 @@ pipeline {
 
 
         // =====================================================
-        // 6. Maven Build
+        // 6. Maven Build on Jenkins
         // =====================================================
 
-        stage('Build') {
+        stage('Maven Build') {
 
             steps {
 
                 echo "========================================"
-                echo "Starting Application Build"
+                echo "Building Application on Jenkins"
                 echo "========================================"
 
                 sh '''
@@ -230,191 +245,165 @@ pipeline {
                 '''
 
                 echo "========================================"
-                echo "APPLICATION BUILD SUCCESSFUL"
+                echo "JENKINS MAVEN BUILD SUCCESSFUL"
                 echo "========================================"
             }
         }
 
 
         // =====================================================
-        // 7. Docker Build
+        // 7. Build + Push + Deploy on Application Server
         // =====================================================
 
-        stage('Docker Build') {
+        stage('Build and Deploy on Application Server') {
 
             steps {
 
                 echo "========================================"
-                echo "Building Docker Image"
+                echo "Application Server Deployment"
                 echo "========================================"
 
-                sh '''
-                    docker build \
-                    -t ${ECR_REPOSITORY}:${IMAGE_TAG} .
-                '''
-
-                echo "Docker image created:"
-                echo "${ECR_REPOSITORY}:${IMAGE_TAG}"
-
-                sh '''
-                    docker images
-                '''
-            }
-        }
-
-
-        // =====================================================
-        // 8. Login to AWS ECR
-        // =====================================================
-
-        stage('ECR Login') {
-
-            steps {
-
-                echo "========================================"
-                echo "Logging into AWS ECR"
-                echo "========================================"
-
-                sh '''
-                    ACCOUNT_ID=$(aws sts get-caller-identity \
-                    --query Account \
-                    --output text)
-
-                    ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-
-                    echo "ECR Registry:"
-                    echo "${ECR_URI}"
-
-                    aws ecr get-login-password \
-                    --region ${AWS_REGION} | \
-                    docker login \
-                    --username AWS \
-                    --password-stdin ${ECR_URI}
-                '''
-            }
-        }
-
-
-        // =====================================================
-        // 9. Tag Docker Image
-        // =====================================================
-
-        stage('Tag Image') {
-
-            steps {
-
-                echo "========================================"
-                echo "Tagging Docker Image"
-                echo "========================================"
-
-                sh '''
-                    ACCOUNT_ID=$(aws sts get-caller-identity \
-                    --query Account \
-                    --output text)
-
-                    ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}
-
-                    docker tag \
-                    ${ECR_REPOSITORY}:${IMAGE_TAG} \
-                    ${ECR_URI}:${IMAGE_TAG}
-
-                    echo "Image tagged as:"
-                    echo "${ECR_URI}:${IMAGE_TAG}"
-                '''
-            }
-        }
-
-
-        // =====================================================
-        // 10. Push Image to ECR
-        // =====================================================
-
-        stage('Push Image to ECR') {
-
-            steps {
-
-                echo "========================================"
-                echo "Pushing Docker Image to ECR"
-                echo "========================================"
-
-                sh '''
-                    ACCOUNT_ID=$(aws sts get-caller-identity \
-                    --query Account \
-                    --output text)
-
-                    ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}
-
-                    docker push ${ECR_URI}:${IMAGE_TAG}
-                '''
-
-                echo "========================================"
-                echo "DOCKER IMAGE PUSHED TO ECR"
-                echo "========================================"
-            }
-        }
-
-
-        // =====================================================
-        // 11. Deploy to EC2
-        // =====================================================
-
-        stage('Deploy to EC2') {
-
-            steps {
-
-                echo "========================================"
-                echo "Deploying Application to EC2"
-                echo "========================================"
-
-                sshagent(["${EC2_SSH_CREDENTIALS}"]) {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: "${EC2_SSH_CREDENTIALS}",
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USERNAME'
+                    )
+                ]) {
 
                     sh '''
-                        ACCOUNT_ID=$(aws sts get-caller-identity \
-                        --query Account \
-                        --output text)
+                        set -e
 
-                        ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}
+                        echo "Application Server:"
+                        echo "${EC2_HOST}"
 
-                        echo "Deploying image:"
+                        echo ""
+                        echo "Image:"
                         echo "${ECR_URI}:${IMAGE_TAG}"
 
-                        ssh -o StrictHostKeyChecking=no \
-                        ${EC2_USER}@${EC2_HOST} "
+                        echo ""
+                        echo "Connecting to Application Server..."
 
-                            echo 'Logging into ECR...'
+                        ssh -o StrictHostKeyChecking=no \
+                            -i "$SSH_KEY" \
+                            "${SSH_USERNAME}@${EC2_HOST}" \
+                            "AWS_REGION='${AWS_REGION}' \
+                             ECR_URI='${ECR_URI}' \
+                             ECR_REPOSITORY='${ECR_REPOSITORY}' \
+                             IMAGE_TAG='${IMAGE_TAG}' \
+                             APP_DIRECTORY='${APP_DIRECTORY}' \
+                             BRANCH_NAME='${BRANCH_NAME}' \
+                             bash -s" <<'REMOTE_SCRIPT'
+
+                            set -e
+
+                            echo "========================================"
+                            echo "Application Server"
+                            echo "========================================"
+
+                            cd "$APP_DIRECTORY"
+
+                            echo ""
+                            echo "Pulling latest selected branch..."
+
+                            git fetch origin
+
+                            git checkout "$BRANCH_NAME" 2>/dev/null || true
+
+                            git pull origin "$BRANCH_NAME"
+
+
+                            echo ""
+                            echo "========================================"
+                            echo "Building Maven Application"
+                            echo "========================================"
+
+                            mvn clean package -DskipTests
+
+
+                            echo ""
+                            echo "========================================"
+                            echo "Building Docker Image"
+                            echo "========================================"
+
+                            docker build \
+                                -t "${ECR_REPOSITORY}:${IMAGE_TAG}" \
+                                .
+
+
+                            echo ""
+                            echo "========================================"
+                            echo "Logging into AWS ECR"
+                            echo "========================================"
 
                             aws ecr get-login-password \
-                            --region ${AWS_REGION} | \
-                            docker login \
-                            --username AWS \
-                            --password-stdin \
-                            ${ECR_URI}
+                                --region "$AWS_REGION" | \
+                                docker login \
+                                --username AWS \
+                                --password-stdin "$ECR_URI"
 
-                            echo 'Pulling latest image...'
 
-                            docker pull ${ECR_URI}:${IMAGE_TAG}
+                            echo ""
+                            echo "========================================"
+                            echo "Tagging Docker Image"
+                            echo "========================================"
 
-                            echo 'Stopping old container...'
+                            docker tag \
+                                "${ECR_REPOSITORY}:${IMAGE_TAG}" \
+                                "${ECR_URI}:${IMAGE_TAG}"
+
+
+                            echo ""
+                            echo "========================================"
+                            echo "Pushing Docker Image to ECR"
+                            echo "========================================"
+
+                            docker push "${ECR_URI}:${IMAGE_TAG}"
+
+
+                            echo ""
+                            echo "========================================"
+                            echo "Stopping Existing Container"
+                            echo "========================================"
 
                             docker stop devops-app || true
 
-                            echo 'Removing old container...'
-
                             docker rm devops-app || true
 
-                            echo 'Starting new container...'
+
+                            echo ""
+                            echo "========================================"
+                            echo "Pulling Image from ECR"
+                            echo "========================================"
+
+                            docker pull "${ECR_URI}:${IMAGE_TAG}"
+
+
+                            echo ""
+                            echo "========================================"
+                            echo "Starting New Container"
+                            echo "========================================"
 
                             docker run -d \
-                            --name devops-app \
-                            -p 8080:8080 \
-                            ${ECR_URI}:${IMAGE_TAG}
+                                --name devops-app \
+                                -p 8080:8080 \
+                                "${ECR_URI}:${IMAGE_TAG}"
 
-                            echo 'Deployment completed.'
 
-                            echo 'Running containers:'
+                            echo ""
+                            echo "========================================"
+                            echo "Deployment Completed"
+                            echo "========================================"
 
+                            echo ""
+                            echo "Running Container:"
                             docker ps
-                        "
+
+                            echo ""
+                            echo "Application Logs:"
+                            docker logs --tail 30 devops-app
+
+REMOTE_SCRIPT
                     '''
                 }
             }
@@ -440,22 +429,33 @@ pipeline {
 
             SonarQube:
             Analysis Completed
-            Quality Gate PASSED
+
+            Quality Gate:
+            PASSED
 
             Approval:
             APPROVED
 
+            Maven:
+            BUILD SUCCESSFUL
+
             Docker:
-            IMAGE BUILT
+            BUILT ON APPLICATION SERVER
 
             ECR:
             IMAGE PUSHED
 
-            EC2:
-            DEPLOYMENT SUCCESSFUL
+            Application Server:
+            ${EC2_HOST}
 
-            Image Tag:
-            ${IMAGE_TAG}
+            Container:
+            devops-app
+
+            Image:
+            ${ECR_URI}:${IMAGE_TAG}
+
+            Application Port:
+            8080
 
             ========================================
             """
@@ -471,6 +471,9 @@ pipeline {
 
             Branch:
             ${params.BRANCH_NAME}
+
+            Application Server:
+            ${EC2_HOST}
 
             Please check the Jenkins Console Output.
 
@@ -496,5 +499,3 @@ pipeline {
         }
     }
 }
-
-          
