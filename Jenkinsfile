@@ -1,3 +1,4 @@
+```groovy
 pipeline {
 
     agent any
@@ -26,6 +27,7 @@ pipeline {
 
         // SonarQube
         SONARQUBE_SERVER = 'SonarQube-Server'
+        SONAR_TOKEN_CREDENTIAL = 'sonarqube-token1'
 
         // AWS
         AWS_REGION = 'ap-south-1'
@@ -128,11 +130,20 @@ pipeline {
 
                 withSonarQubeEnv("${SONARQUBE_SERVER}") {
 
-                    sh '''
-                        mvn clean verify sonar:sonar \
-                        -Dsonar.projectKey=devops-sonarqube-demo \
-                        -Dsonar.projectName=devops-sonarqube-demo
-                    '''
+                    withCredentials([
+                        string(
+                            credentialsId: "${SONAR_TOKEN_CREDENTIAL}",
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+
+                        sh '''
+                            mvn clean verify sonar:sonar \
+                            -Dsonar.projectKey=devops-sonarqube-demo \
+                            -Dsonar.projectName=devops-sonarqube-demo \
+                            -Dsonar.token="$SONAR_TOKEN"
+                        '''
+                    }
                 }
 
                 echo "SonarQube analysis completed."
@@ -429,6 +440,7 @@ pipeline {
             ${params.BRANCH_NAME}
 
             SonarQube:
+            Analysis Completed
             Quality Gate PASSED
 
             Approval:
@@ -484,4 +496,6 @@ pipeline {
             """
         }
     }
-}             
+}
+
+          
