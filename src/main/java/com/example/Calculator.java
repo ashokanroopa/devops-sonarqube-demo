@@ -1,35 +1,42 @@
 package com.example;
 
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
 public class Calculator {
 
-    public int add(int a, int b) {
+    @GetMapping("/add")
+    public int add(
+            @RequestParam int a,
+            @RequestParam int b) {
         return a + b;
     }
 
-    public int subtract(int a, int b) {
+    @GetMapping("/subtract")
+    public int subtract(
+            @RequestParam int a,
+            @RequestParam int b) {
         return a - b;
     }
 
-    public int multiply(int a, int b) {
+    @GetMapping("/multiply")
+    public int multiply(
+            @RequestParam int a,
+            @RequestParam int b) {
         return a * b;
     }
 
-    public int divide(int a, int b) {
+    @GetMapping("/divide")
+    public int divide(
+            @RequestParam int a,
+            @RequestParam int b) {
+
         if (b == 0) {
             throw new IllegalArgumentException("Cannot divide by zero");
         }
 
         return a / b;
-    }
-
-    public static void main(String[] args) {
-
-        Calculator calculator = new Calculator();
-
-        System.out.println("Addition: "
-                + calculator.add(10, 20));
-
-        System.out.println("Subtraction: "
-                + calculator.subtract(20, 10));
     }
 }
