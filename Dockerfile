@@ -1,4 +1,4 @@
-ROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
