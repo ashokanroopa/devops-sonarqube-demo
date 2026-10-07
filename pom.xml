@@ -1,105 +1,105 @@
 <?xml version="1.0" encoding="UTF-8"?>
+
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <modelVersion>4.0.0</modelVersion>
 
-    <parent>
+<modelVersion>4.0.0</modelVersion>
+
+<parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.5</version>
+    <relativePath/>
+</parent>
+
+<groupId>com.example</groupId>
+<artifactId>devops-sonarqube-demo</artifactId>
+<version>1.0</version>
+
+<name>devops-sonarqube-demo</name>
+<description>DevOps SonarQube Demo Application</description>
+
+<properties>
+    <java.version>21</java.version>
+    <sonar.projectKey>devops-sonarqube-demo</sonar.projectKey>
+    <sonar.projectName>devops-sonarqube-demo</sonar.projectName>
+</properties>
+
+<dependencies>
+
+    <dependency>
         <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.5</version>
-        <relativePath/>
-    </parent>
+        <artifactId>spring-boot-starter</artifactId>
+    </dependency>
 
-    <groupId>com.example</groupId>
-    <artifactId>devops-sonarqube-demo</artifactId>
-    <version>1.0</version>
-    <name>devops-sonarqube-demo</name>
-    <description>DevOps SonarQube Demo Application</description>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
 
-    <properties>
-        <java.version>21</java.version>
-        <sonar.projectKey>devops-sonarqube-demo</sonar.projectKey>
-        <sonar.projectName>devops-sonarqube-demo</sonar.projectName>
-    </properties>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
 
-    <dependencies>
+</dependencies>
 
-        <!-- Spring Boot -->
-        <dependency>
+<build>
+    <plugins>
+
+        <plugin>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
-        </dependency>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
 
-        <!-- Spring Boot Test -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <plugin>
+            <groupId>org.sonarsource.scanner.maven</groupId>
+            <artifactId>sonar-maven-plugin</artifactId>
+            <version>5.7.0.6970</version>
+        </plugin>
 
-    </dependencies>
+        <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>0.8.12</version>
 
-    <build>
-        <plugins>
+            <executions>
 
-            <!-- Spring Boot Maven Plugin -->
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
+                <execution>
+                    <id>prepare-agent</id>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                </execution>
 
-            <!-- SonarQube Maven Plugin -->
-            <plugin>
-                <groupId>org.sonarsource.scanner.maven</groupId>
-                <artifactId>sonar-maven-plugin</artifactId>
-                <version>5.7.0.6970</version>
-            </plugin>
+                <execution>
+                    <id>report</id>
+                    <phase>verify</phase>
+                    <goals>
+                        <goal>report</goal>
+                    </goals>
+                    <configuration>
+                        <excludes>
+                            <exclude>com/example/DevopsSonarqubeDemoApplication.class</exclude>
+                        </excludes>
+                    </configuration>
+                </execution>
 
-            <!-- JaCoCo Code Coverage -->
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+            </executions>
+        </plugin>
 
-                <executions>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>3.2.5</version>
+        </plugin>
 
-                    <!-- Prepare JaCoCo Agent -->
-                    <execution>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
+    </plugins>
+</build>
 
-                    <!-- Generate JaCoCo Report -->
-                    <execution>
-                        <id>report</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>report</goal>
-                        </goals>
-                        <configuration>
-                            <excludes>
-                                <exclude>com/example/DevopsSonarqubeDemoApplication.class</exclude>
-                            </excludes>
-                        </configuration>
-                    </execution>
-
-                </executions>
-            </plugin>
-
-            <!-- Maven Surefire Plugin -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
-            </plugin>
-
-        </plugins>
-    </build>
 
 </project>
-
 
