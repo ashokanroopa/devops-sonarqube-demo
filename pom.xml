@@ -1,5 +1,5 @@
+```xml
 <?xml version="1.0" encoding="UTF-8"?>
-
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
@@ -7,7 +7,6 @@
 
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- Spring Boot Parent -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -15,29 +14,27 @@
         <relativePath/>
     </parent>
 
-    <!-- Project Information -->
     <groupId>com.example</groupId>
     <artifactId>devops-sonarqube-demo</artifactId>
     <version>1.0</version>
     <name>devops-sonarqube-demo</name>
     <description>DevOps SonarQube Demo Application</description>
 
-    <!-- Java Version -->
     <properties>
         <java.version>21</java.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <sonar.projectKey>devops-sonarqube-demo</sonar.projectKey>
+        <sonar.projectName>devops-sonarqube-demo</sonar.projectName>
     </properties>
 
-    <!-- Dependencies -->
     <dependencies>
 
-        <!-- Spring Boot Web -->
+        <!-- Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
-        <!-- JUnit 5 -->
+        <!-- Spring Boot Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -46,9 +43,7 @@
 
     </dependencies>
 
-    <!-- Build Plugins -->
     <build>
-
         <plugins>
 
             <!-- Spring Boot Maven Plugin -->
@@ -72,18 +67,25 @@
 
                 <executions>
 
+                    <!-- Prepare JaCoCo Agent -->
                     <execution>
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
                     </execution>
 
+                    <!-- Generate JaCoCo Report -->
                     <execution>
                         <id>report</id>
                         <phase>verify</phase>
                         <goals>
                             <goal>report</goal>
                         </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>com/example/DevopsSonarqubeDemoApplication.class</exclude>
+                            </excludes>
+                        </configuration>
                     </execution>
 
                 </executions>
@@ -97,18 +99,8 @@
             </plugin>
 
         </plugins>
-
     </build>
 
-    <!-- Nexus Repository -->
-    <distributionManagement>
-
-        <repository>
-            <id>nexus-releases</id>
-            <url>http://172.31.5.36:8081/repository/maven-releases/</url>
-        </repository>
-
-    </distributionManagement>
-
 </project>
+```
 
