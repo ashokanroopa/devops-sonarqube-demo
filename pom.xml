@@ -1,105 +1,118 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-      xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
+    <modelVersion>4.0.0</modelVersion>
 
-<modelVersion>4.0.0</modelVersion>
-
-<parent>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.5.5</version>
-    <relativePath/>
-</parent>
-
-<groupId>com.example</groupId>
-<artifactId>devops-sonarqube-demo</artifactId>
-<version>1.0</version>
-
-<name>devops-sonarqube-demo</name>
-<description>DevOps SonarQube Demo Application</description>
-
-<properties>
-    <java.version>21</java.version>
-    <sonar.projectKey>devops-sonarqube-demo</sonar.projectKey>
-    <sonar.projectName>devops-sonarqube-demo</sonar.projectName>
-</properties>
-
-<dependencies>
-
-    <dependency>
+    <parent>
         <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter</artifactId>
-    </dependency>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.5</version>
+        <relativePath/>
+    </parent>
 
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-web</artifactId>
-    </dependency>
+    <groupId>com.example</groupId>
+    <artifactId>devops-sonarqube-demo</artifactId>
+    <version>1.0</version>
 
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-test</artifactId>
-        <scope>test</scope>
-    </dependency>
+    <name>devops-sonarqube-demo</name>
+    <description>DevOps SonarQube Demo Application</description>
 
-</dependencies>
+    <properties>
+        <java.version>21</java.version>
 
-<build>
-    <plugins>
+        <sonar.projectKey>devops-sonarqube-demo</sonar.projectKey>
+        <sonar.projectName>devops-sonarqube-demo</sonar.projectName>
 
-        <plugin>
+        <!-- Exclude Spring Boot main class from SonarQube coverage -->
+        <sonar.coverage.exclusions>**/DevopsSonarqubeDemoApplication.java</sonar.coverage.exclusions>
+    </properties>
+
+    <dependencies>
+
+        <!-- Spring Boot Core -->
+        <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-maven-plugin</artifactId>
-        </plugin>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
 
-        <plugin>
-            <groupId>org.sonarsource.scanner.maven</groupId>
-            <artifactId>sonar-maven-plugin</artifactId>
-            <version>5.7.0.6970</version>
-        </plugin>
+        <!-- Spring Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
 
-        <plugin>
-            <groupId>org.jacoco</groupId>
-            <artifactId>jacoco-maven-plugin</artifactId>
-            <version>0.8.12</version>
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
 
-            <executions>
+    </dependencies>
 
-                <execution>
-                    <id>prepare-agent</id>
-                    <goals>
-                        <goal>prepare-agent</goal>
-                    </goals>
-                </execution>
+    <build>
+        <plugins>
 
-                <execution>
-                    <id>report</id>
-                    <phase>verify</phase>
-                    <goals>
-                        <goal>report</goal>
-                    </goals>
-                    <configuration>
-                        <excludes>
-                            <exclude>com/example/DevopsSonarqubeDemoApplication.class</exclude>
-                        </excludes>
-                    </configuration>
-                </execution>
+            <!-- Spring Boot -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
 
-            </executions>
-        </plugin>
+            <!-- SonarQube -->
+            <plugin>
+                <groupId>org.sonarsource.scanner.maven</groupId>
+                <artifactId>sonar-maven-plugin</artifactId>
+                <version>5.7.0.6970</version>
+            </plugin>
 
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <version>3.2.5</version>
-        </plugin>
+            <!-- JaCoCo Code Coverage -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
 
-    </plugins>
-</build>
+                <executions>
 
+                    <!-- Prepare JaCoCo agent -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+
+                    <!-- Generate JaCoCo report -->
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+
+                        <configuration>
+                            <!-- Exclude Spring Boot main class from JaCoCo -->
+                            <excludes>
+                                <exclude>com/example/DevopsSonarqubeDemoApplication.class</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+
+                </executions>
+            </plugin>
+
+            <!-- Maven Surefire -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+
+        </plugins>
+    </build>
 
 </project>
+
 
