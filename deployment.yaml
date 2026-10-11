@@ -1,0 +1,46 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-sonarqube-demo
+  labels:
+    app: devops-sonarqube-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-sonarqube-demo
+  template:
+    metadata:
+      labels:
+        app: devops-sonarqube-demo
+    spec:
+      imagePullSecrets:
+        - name: ecr-secret
+      containers:
+        - name: devops-sonarqube-demo
+          image: 974066991334.dkr.ecr.ap-south-1.amazonaws.com/devops-sonarqube-demo:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /add?a=1&b=1
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /add?a=1&b=1
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 20
+
