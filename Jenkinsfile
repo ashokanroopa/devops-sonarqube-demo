@@ -19,217 +19,176 @@ pipeline {
     }
 
     environment {
-        // GitHub
+        // GitHub repository
         GIT_URL = 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
 
-        // SonarQube
-        SONARQUBE_SERVER = 'SonarQube-Server'
-        SONAR_TOKEN_CREDENTIAL = 'sonarqube-token1'
+        // SonarQube configuration
+        SONAR_SERVER = 'SonarQube-Server'
+        SONAR_TOKEN_CREDENTIALS = 'sonarqube-token1'
 
-        // AWS / ECR
+        // AWS and ECR configuration
         AWS_REGION = 'ap-south-1'
         AWS_ACCOUNT_ID = '974066991334'
-        ECR_REPOSITORY = 'devops-sonarqube-demo'
+        ECR_REPO = 'devops-sonarqube-demo'
         IMAGE_TAG = "v${BUILD_NUMBER}"
-        ECR_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
+        ECR_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
 
-        // Application EC2
-        EC2_SSH_CREDENTIALS = 'ec2-ssh-key'
-        EC2_HOST = '172.31.3.250'
+        // Application EC2 configuration
+        EC2_CREDENTIALS = 'ec2-ssh-key'
         EC2_USER = 'ubuntu'
-        APP_DIRECTORY = '/home/ubuntu/devops-sonarqube-demo'
+        EC2_HOST = '172.31.3.250'
+        APP_DIR = '/home/ubuntu/devops-sonarqube-demo'
 
-        // Loki runs on the Jenkins EC2 server
+        // Loki pipeline-summary endpoint
         LOKI_URL = 'http://172.31.10.97:3100/loki/api/v1/push'
     }
 
     stages {
-        stage('Fetch Branch') {
+        stage('Fetch Branches') {
             steps {
-                echo 'Fetching branch information'
-
-                deleteDir()
-
-                git(
-                    branch: 'main',
-                    url: "${GIT_URL}"
+                gitParameter(
+                    name: 'BRANCH_NAME',
+                    type: 'PT_BRANCH',
+                    branchFilter: 'origin/(.*)',
+                    defaultValue: 'main',
+                    selectedValue: 'DEFAULT',
+                    sortMode: 'DESCENDING_SMART',
+                    description: 'Select the GitHub branch to build'
                 )
-
-                sh '''
-                    git fetch --all --prune
-                    echo "Available branches:"
-                    git branch -r
-                '''
-
-                echo "Selected branch: ${params.BRANCH_NAME}"
             }
         }
 
         stage('Checkout') {
             steps {
-                echo 'Checking out selected branch'
+                deleteDir()
+
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.BRANCH_NAME}"]],
+                    userRemoteConfigs: [[
+                        url: "${env.GIT_URL}"
+                    ]]
+                ])
 
                 sh '''
-                    set -e
-                    git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
-
-                    echo "Checked out branch:"
-                    git branch --show-current
-
-                    echo "Commit:"
-                    git rev-parse HEAD
+                    echo "Selected branch: ${BRANCH_NAME}"
+                    echo "Git commit:"
+                    git rev-parse --short HEAD
                 '''
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                echo 'Starting SonarQube analysis'
-
-                withSonarQubeEnv("${SONARQUBE_SERVER}") {
-                    withCredentials([
-                        string(
-                            credentialsId: "${SONAR_TOKEN_CREDENTIAL}",
-                            variable: 'SONAR_TOKEN'
-                        )
-                    ]) {
+                withCredentials([
+                    string(
+                        credentialsId: "${SONAR_TOKEN_CREDENTIALS}",
+                        variable: 'SONAR_TOKEN'
+                    )
+                ]) {
+                    withSonarQubeEnv("${SONAR_SERVER}") {
                         sh '''
-                            set -e
-                            mvn clean verify sonar:sonar \
-                                -Dsonar.projectKey=devops-sonarqube-demo \
-                                -Dsonar.projectName=devops-sonarqube-demo \
-                                -Dsonar.token="$SONAR_TOKEN"
+                            mvn -B clean verify sonar:sonar \
+                              -Dsonar.token="$SONAR_TOKEN" \
+                              -Dsonar.projectKey=devops-sonarqube-demo \
+                              -Dsonar.projectName=devops-sonarqube-demo
                         '''
                     }
                 }
-
-                echo 'SonarQube analysis completed'
             }
         }
 
         stage('Quality Gate') {
             steps {
-                echo 'Waiting for SonarQube quality gate'
+                timeout(time: 5, unit: 'MINUTES') {
+                    script {
+                        def qualityGate = waitForQualityGate()
 
-                timeout(time: 10, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
+                        if (qualityGate.status != 'OK') {
+                            error "SonarQube Quality Gate failed: ${qualityGate.status}"
+                        }
+
+                        echo "SonarQube Quality Gate: ${qualityGate.status}"
+                    }
                 }
-
-                echo 'CODE QUALITY GATE PASSED'
             }
         }
 
         stage('Approval') {
             steps {
-                script {
-                    def approval = input(
-                        message: 'Do you approve the deployment?',
-                        parameters: [
-                            choice(
-                                name: 'APPROVAL',
-                                choices: 'APPROVE\nDENY',
-                                description: 'Select APPROVE to continue or DENY to stop'
-                            )
-                        ]
+                timeout(time: 10, unit: 'MINUTES') {
+                    input(
+                        message: "Approve deployment of ${env.IMAGE_TAG} to the application EC2?",
+                        ok: 'APPROVE'
                     )
-
-                    echo "Approval decision: ${approval}"
-
-                    if (approval != 'APPROVE') {
-                        error('Deployment denied by approver')
-                    }
-
-                    echo 'DEPLOYMENT APPROVED'
                 }
             }
         }
 
         stage('Maven Build') {
             steps {
-                echo 'Building application on Jenkins'
-
                 sh '''
-                    set -e
-                    mvn clean package -DskipTests
+                    mvn -B clean package
+                    echo "Maven package completed."
                 '''
-
-                echo 'JENKINS MAVEN BUILD SUCCESSFUL'
             }
         }
 
         stage('Build and Deploy on Application Server') {
             steps {
-                echo 'Starting application server deployment'
-
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: "${EC2_SSH_CREDENTIALS}",
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USERNAME'
-                    )
-                ]) {
+                sshagent(credentials: ["${EC2_CREDENTIALS}"]) {
                     sh '''
-                        set -e
+                        set -eu
 
-                        echo "Application server: $EC2_HOST"
-                        echo "Image: $ECR_URI:$IMAGE_TAG"
+                        echo "Connecting to application EC2..."
 
-                        ssh -o StrictHostKeyChecking=no \
-                            -i "$SSH_KEY" \
-                            "$SSH_USERNAME@$EC2_HOST" \
-                            "AWS_REGION='$AWS_REGION' \
-                             ECR_URI='$ECR_URI' \
-                             ECR_REPOSITORY='$ECR_REPOSITORY' \
-                             IMAGE_TAG='$IMAGE_TAG' \
-                             APP_DIRECTORY='$APP_DIRECTORY' \
-                             BRANCH_NAME='$BRANCH_NAME' \
-                             bash -s" <<'REMOTE_SCRIPT'
+                        ssh -o StrictHostKeyChecking=accept-new \
+                            ${EC2_USER}@${EC2_HOST} \
+                            "mkdir -p ${APP_DIR}"
 
-set -e
+                        echo "Checking out selected branch and building Docker image..."
 
-cd "$APP_DIRECTORY"
+                        ssh -o StrictHostKeyChecking=accept-new \
+                            ${EC2_USER}@${EC2_HOST} \
+                            "set -eu
+                             if [ -d '${APP_DIR}/.git' ]; then
+                                 cd '${APP_DIR}'
+                                 git fetch origin
+                                 git checkout '${BRANCH_NAME}'
+                                 git reset --hard 'origin/${BRANCH_NAME}'
+                             else
+                                 git clone --branch '${BRANCH_NAME}' '${GIT_URL}' '${APP_DIR}'
+                                 cd '${APP_DIR}'
+                             fi
 
-echo "Fetching selected branch..."
-git fetch origin
-git checkout -B "$BRANCH_NAME" "origin/$BRANCH_NAME"
-git pull --ff-only origin "$BRANCH_NAME"
+                             mvn -B clean package
 
-echo "Building Maven application..."
-mvn clean package -DskipTests
+                             aws ecr get-login-password --region '${AWS_REGION}' |
+                               docker login \
+                                 --username AWS \
+                                 --password-stdin \
+                                 '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'
 
-echo "Building Docker image..."
-docker build -t "${ECR_REPOSITORY}:${IMAGE_TAG}" .
+                             docker build -t '${ECR_REPO}:${IMAGE_TAG}' .
 
-echo "Logging into ECR..."
-aws ecr get-login-password --region "$AWS_REGION" |
-    docker login --username AWS --password-stdin "$ECR_URI"
+                             docker tag '${ECR_REPO}:${IMAGE_TAG}' '${ECR_URI}:${IMAGE_TAG}'
 
-echo "Tagging image..."
-docker tag \
-    "${ECR_REPOSITORY}:${IMAGE_TAG}" \
-    "${ECR_URI}:${IMAGE_TAG}"
+                             docker push '${ECR_URI}:${IMAGE_TAG}'
 
-echo "Pushing image to ECR..."
-docker push "${ECR_URI}:${IMAGE_TAG}"
+                             docker pull '${ECR_URI}:${IMAGE_TAG}'
 
-echo "Stopping old container if present..."
-docker stop devops-app || true
-docker rm devops-app || true
+                             docker stop devops-app || true
+                             docker rm devops-app || true
 
-echo "Pulling image from ECR..."
-docker pull "${ECR_URI}:${IMAGE_TAG}"
+                             docker run -d \
+                               --name devops-app \
+                               --restart unless-stopped \
+                               -p 8080:8080 \
+                               '${ECR_URI}:${IMAGE_TAG}'
 
-echo "Starting new container..."
-docker run -d \
-    --name devops-app \
-    -p 8080:8080 \
-    "${ECR_URI}:${IMAGE_TAG}"
-
-echo "Deployment completed"
-docker ps
-docker logs --tail 30 devops-app
-
-REMOTE_SCRIPT
+                             echo 'Deployment completed.'
+                             docker ps --filter name=devops-app
+                            "
                     '''
                 }
             }
@@ -238,110 +197,96 @@ REMOTE_SCRIPT
 
     post {
         success {
-            echo """
-            ========================================
-                    PIPELINE SUCCESS
-            ========================================
-            Branch: ${params.BRANCH_NAME}
-            Quality Gate: PASSED
-            Image: ${ECR_URI}:${IMAGE_TAG}
-            Application Server: ${EC2_HOST}
-            Container: devops-app
-            ========================================
-            """
+            echo "Pipeline SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
         }
 
         failure {
-            echo """
-            ========================================
-                    PIPELINE FAILED
-            ========================================
-            Branch: ${params.BRANCH_NAME}
-            Application Server: ${EC2_HOST}
-            Check Jenkins Console Output.
-            ========================================
-            """
+            echo "Pipeline FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
         }
 
         aborted {
-            echo """
-            ========================================
-                    PIPELINE ABORTED
-            ========================================
-            Branch: ${params.BRANCH_NAME}
-            ========================================
-            """
+            echo "Pipeline ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
         }
 
         always {
             script {
-                // Record one final pipeline summary event in Loki.
-                // Logging errors must not override the pipeline result.
-
                 def buildStatus = currentBuild.currentResult ?: 'UNKNOWN'
                 def selectedBranch = params.BRANCH_NAME ?: 'unknown'
-                def image = env.ECR_URI + ':' + env.IMAGE_TAG
+                def image = "${env.ECR_URI}:${env.IMAGE_TAG}"
+                def timestampNs = "${System.currentTimeMillis()}000000"
 
-                def logMessage =
-                    "status=${buildStatus} job=${env.JOB_NAME} " +
-                    "build=${env.BUILD_NUMBER} branch=${selectedBranch} " +
-                    "image=${image}"
-
-                def timestampNs =
-                    (System.currentTimeMillis().toString() + '000000')
-
-                def payload = [
-                    streams: [[
-                        stream: [
-                            job: 'jenkins-pipeline',
-                            app: 'devops-sonarqube-demo'
-                        ],
-                        values: [[timestampNs, logMessage]]
-                    ]]
-                ]
-
-                try {
-                    writeFile(
-                        file: 'loki-payload.json',
-                        text: JsonOutput.toJson(payload)
-                    )
-
-                    echo "Sending pipeline summary to Loki: ${buildStatus}"
-
+                withEnv([
+                    "LOKI_STATUS=${buildStatus}",
+                    "LOKI_JOB=${env.JOB_NAME}",
+                    "LOKI_BUILD=${env.BUILD_NUMBER}",
+                    "LOKI_BRANCH=${selectedBranch}",
+                    "LOKI_IMAGE=${image}",
+                    "LOKI_TIMESTAMP=${timestampNs}"
+                ]) {
                     sh(
                         returnStatus: true,
                         script: '''
                             set +e
 
+                            PAYLOAD=$(python3 -c '
+import json
+import os
+
+message = (
+    "status=" + os.environ["LOKI_STATUS"]
+    + " job=" + os.environ["LOKI_JOB"]
+    + " build=" + os.environ["LOKI_BUILD"]
+    + " branch=" + os.environ["LOKI_BRANCH"]
+    + " image=" + os.environ["LOKI_IMAGE"]
+)
+
+payload = {
+    "streams": [{
+        "stream": {
+            "job": "jenkins-pipeline",
+            "app": "devops-sonarqube-demo"
+        },
+        "values": [[os.environ["LOKI_TIMESTAMP"], message]]
+    }]
+}
+
+print(json.dumps(payload))
+')
+
+                            if [ -z "$PAYLOAD" ]; then
+                                echo "Could not generate Loki payload."
+                                exit 0
+                            fi
+
                             HTTP_CODE=$(curl \
                                 --connect-timeout 3 \
                                 --max-time 5 \
                                 -sS \
-                                -o loki-response.txt \
+                                -o /tmp/loki-response.txt \
                                 -w '%{http_code}' \
                                 -X POST "$LOKI_URL" \
                                 -H 'Content-Type: application/json' \
-                                --data-binary @loki-payload.json)
+                                --data-binary "$PAYLOAD")
 
                             CURL_STATUS=$?
 
                             echo "Loki HTTP status: ${HTTP_CODE:-unavailable}"
 
-                            if [ -f loki-response.txt ]; then
-                                cat loki-response.txt
-                            fi
-
                             if [ "$CURL_STATUS" -ne 0 ]; then
-                                echo "Loki request failed; pipeline result is unchanged"
+                                echo "Loki request failed; pipeline result remains unchanged."
+                            elif [ "$HTTP_CODE" != "204" ]; then
+                                echo "Loki did not return the expected HTTP 204 response."
+                                if [ -f /tmp/loki-response.txt ]; then
+                                    cat /tmp/loki-response.txt
+                                fi
+                            else
+                                echo "Pipeline summary successfully sent to Loki."
                             fi
 
-                            rm -f loki-payload.json loki-response.txt
+                            rm -f /tmp/loki-response.txt
                             exit 0
                         '''
                     )
-                } catch (Exception e) {
-                    echo "Loki logging could not be completed: ${e.getMessage()}"
-                    echo 'Continuing without changing the pipeline result.'
                 }
             }
         }
