@@ -10,53 +10,39 @@ pipeline {
         gitParameter(
             name: 'BRANCH_NAME',
             type: 'PT_BRANCH',
+            branch: 'main',
             branchFilter: 'origin/(.*)',
+            tagFilter: '*',
             defaultValue: 'main',
             selectedValue: 'DEFAULT',
             sortMode: 'DESCENDING_SMART',
+            quickFilterEnabled: true,
+            useRepository: 'https://github.com/ashokanroopa/devops-sonarqube-demo.git',
             description: 'Select the GitHub branch to build'
         )
     }
 
     environment {
-        // GitHub repository
         GIT_URL = 'https://github.com/ashokanroopa/devops-sonarqube-demo.git'
 
-        // SonarQube configuration
         SONAR_SERVER = 'SonarQube-Server'
         SONAR_TOKEN_CREDENTIALS = 'sonarqube-token1'
 
-        // AWS and ECR configuration
         AWS_REGION = 'ap-south-1'
         AWS_ACCOUNT_ID = '974066991334'
         ECR_REPO = 'devops-sonarqube-demo'
         IMAGE_TAG = "v${BUILD_NUMBER}"
         ECR_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
 
-        // Application EC2 configuration
         EC2_CREDENTIALS = 'ec2-ssh-key'
         EC2_USER = 'ubuntu'
         EC2_HOST = '172.31.3.250'
         APP_DIR = '/home/ubuntu/devops-sonarqube-demo'
 
-        // Loki pipeline-summary endpoint
         LOKI_URL = 'http://172.31.10.97:3100/loki/api/v1/push'
     }
 
     stages {
-        stage('Fetch Branches') {
-            steps {
-                gitParameter(
-                    name: 'BRANCH_NAME',
-                    type: 'PT_BRANCH',
-                    branchFilter: 'origin/(.*)',
-                    defaultValue: 'main',
-                    selectedValue: 'DEFAULT',
-                    sortMode: 'DESCENDING_SMART',
-                    description: 'Select the GitHub branch to build'
-                )
-            }
-        }
 
         stage('Checkout') {
             steps {
@@ -66,13 +52,14 @@ pipeline {
                     $class: 'GitSCM',
                     branches: [[name: "*/${params.BRANCH_NAME}"]],
                     userRemoteConfigs: [[
-                        url: "${env.GIT_URL}"
+                        url: "${env.GIT_URL}",
+                        refspec: '+refs/heads/:refs/remotes/origin/'
                     ]]
                 ])
 
                 sh '''
                     echo "Selected branch: ${BRANCH_NAME}"
-                    echo "Git commit:"
+                    echo "Checked out commit:"
                     git rev-parse --short HEAD
                 '''
             }
@@ -143,35 +130,43 @@ pipeline {
                         echo "Connecting to application EC2..."
 
                         ssh -o StrictHostKeyChecking=accept-new \
-                            ${EC2_USER}@${EC2_HOST} \
-                            "mkdir -p ${APP_DIR}"
+                            "${EC2_USER}@${EC2_HOST}" \
+                            "mkdir -p '${APP_DIR}'"
 
-                        echo "Checking out selected branch and building Docker image..."
+                        echo "Checking out branch and deploying..."
 
                         ssh -o StrictHostKeyChecking=accept-new \
-                            ${EC2_USER}@${EC2_HOST} \
+                            "${EC2_USER}@${EC2_HOST}" \
                             "set -eu
+
                              if [ -d '${APP_DIR}/.git' ]; then
                                  cd '${APP_DIR}'
                                  git fetch origin
                                  git checkout '${BRANCH_NAME}'
                                  git reset --hard 'origin/${BRANCH_NAME}'
                              else
-                                 git clone --branch '${BRANCH_NAME}' '${GIT_URL}' '${APP_DIR}'
+                                 git clone \
+                                   --branch '${BRANCH_NAME}' \
+                                   '${GIT_URL}' \
+                                   '${APP_DIR}'
                                  cd '${APP_DIR}'
                              fi
 
                              mvn -B clean package
 
-                             aws ecr get-login-password --region '${AWS_REGION}' |
+                             aws ecr get-login-password \
+                               --region '${AWS_REGION}' |
                                docker login \
                                  --username AWS \
                                  --password-stdin \
                                  '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'
 
-                             docker build -t '${ECR_REPO}:${IMAGE_TAG}' .
+                             docker build \
+                               -t '${ECR_REPO}:${IMAGE_TAG}' .
 
-                             docker tag '${ECR_REPO}:${IMAGE_TAG}' '${ECR_URI}:${IMAGE_TAG}'
+                             docker tag \
+                               '${ECR_REPO}:${IMAGE_TAG}' \
+                               '${ECR_URI}:${IMAGE_TAG}'
 
                              docker push '${ECR_URI}:${IMAGE_TAG}'
 
@@ -273,9 +268,9 @@ print(json.dumps(payload))
                             echo "Loki HTTP status: ${HTTP_CODE:-unavailable}"
 
                             if [ "$CURL_STATUS" -ne 0 ]; then
-                                echo "Loki request failed; pipeline result remains unchanged."
+                                echo "Loki request failed; pipeline result unchanged."
                             elif [ "$HTTP_CODE" != "204" ]; then
-                                echo "Loki did not return the expected HTTP 204 response."
+                                echo "Loki did not return HTTP 204."
                                 if [ -f /tmp/loki-response.txt ]; then
                                     cat /tmp/loki-response.txt
                                 fi
