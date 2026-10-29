@@ -43,24 +43,29 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 deleteDir()
 
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: "*/${params.BRANCH_NAME}"]],
-                    userRemoteConfigs: [[
-                        url: "${env.GIT_URL}",
-                        refspec: '+refs/heads/:refs/remotes/origin/'
-                    ]]
-                ])
+                script {
+                    def selectedBranch = params.BRANCH_NAME ?: 'main'
+
+                    echo "Selected branch: ${selectedBranch}"
+
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "*/${selectedBranch}"]],
+                        userRemoteConfigs: [[
+                            url: "${env.GIT_URL}"
+                        ]]
+                    ])
+                }
 
                 sh '''
-                    echo "Selected branch: ${BRANCH_NAME}"
                     echo "Checked out commit:"
                     git rev-parse --short HEAD
+                    echo "Current branch:"
+                    git branch --show-current
                 '''
             }
         }
@@ -105,7 +110,7 @@ pipeline {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
                     input(
-                        message: "Approve deployment of ${env.IMAGE_TAG} to the application EC2?",
+                        message: "Approve deployment of ${env.IMAGE_TAG} to application EC2?",
                         ok: 'APPROVE'
                     )
                 }
@@ -123,68 +128,72 @@ pipeline {
 
         stage('Build and Deploy on Application Server') {
             steps {
-                sshagent(credentials: ["${EC2_CREDENTIALS}"]) {
-                    sh '''
-                        set -eu
+                script {
+                    def selectedBranch = params.BRANCH_NAME ?: 'main'
 
-                        echo "Connecting to application EC2..."
+                    withEnv(["SELECTED_BRANCH=${selectedBranch}"]) {
+                        sshagent(credentials: ["${EC2_CREDENTIALS}"]) {
+                            sh '''
+                                set -eu
 
-                        ssh -o StrictHostKeyChecking=accept-new \
-                            "${EC2_USER}@${EC2_HOST}" \
-                            "mkdir -p '${APP_DIR}'"
+                                echo "Connecting to application EC2..."
 
-                        echo "Checking out branch and deploying..."
+                                ssh -o StrictHostKeyChecking=accept-new \
+                                    "${EC2_USER}@${EC2_HOST}" \
+                                    "mkdir -p '${APP_DIR}'"
 
-                        ssh -o StrictHostKeyChecking=accept-new \
-                            "${EC2_USER}@${EC2_HOST}" \
-                            "set -eu
+                                ssh -o StrictHostKeyChecking=accept-new \
+                                    "${EC2_USER}@${EC2_HOST}" \
+                                    "set -eu
 
-                             if [ -d '${APP_DIR}/.git' ]; then
-                                 cd '${APP_DIR}'
-                                 git fetch origin
-                                 git checkout '${BRANCH_NAME}'
-                                 git reset --hard 'origin/${BRANCH_NAME}'
-                             else
-                                 git clone \
-                                   --branch '${BRANCH_NAME}' \
-                                   '${GIT_URL}' \
-                                   '${APP_DIR}'
-                                 cd '${APP_DIR}'
-                             fi
+                                     if [ -d '${APP_DIR}/.git' ]; then
+                                         cd '${APP_DIR}'
+                                         git fetch origin
+                                         git checkout '${SELECTED_BRANCH}'
+                                         git reset --hard 'origin/${SELECTED_BRANCH}'
+                                     else
+                                         git clone \
+                                           --branch '${SELECTED_BRANCH}' \
+                                           '${GIT_URL}' \
+                                           '${APP_DIR}'
+                                         cd '${APP_DIR}'
+                                     fi
 
-                             mvn -B clean package
+                                     mvn -B clean package
 
-                             aws ecr get-login-password \
-                               --region '${AWS_REGION}' |
-                               docker login \
-                                 --username AWS \
-                                 --password-stdin \
-                                 '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'
+                                     aws ecr get-login-password \
+                                       --region '${AWS_REGION}' |
+                                       docker login \
+                                         --username AWS \
+                                         --password-stdin \
+                                         '${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com'
 
-                             docker build \
-                               -t '${ECR_REPO}:${IMAGE_TAG}' .
+                                     docker build \
+                                       -t '${ECR_REPO}:${IMAGE_TAG}' .
 
-                             docker tag \
-                               '${ECR_REPO}:${IMAGE_TAG}' \
-                               '${ECR_URI}:${IMAGE_TAG}'
+                                     docker tag \
+                                       '${ECR_REPO}:${IMAGE_TAG}' \
+                                       '${ECR_URI}:${IMAGE_TAG}'
 
-                             docker push '${ECR_URI}:${IMAGE_TAG}'
+                                     docker push '${ECR_URI}:${IMAGE_TAG}'
 
-                             docker pull '${ECR_URI}:${IMAGE_TAG}'
+                                     docker pull '${ECR_URI}:${IMAGE_TAG}'
 
-                             docker stop devops-app || true
-                             docker rm devops-app || true
+                                     docker stop devops-app || true
+                                     docker rm devops-app || true
 
-                             docker run -d \
-                               --name devops-app \
-                               --restart unless-stopped \
-                               -p 8080:8080 \
-                               '${ECR_URI}:${IMAGE_TAG}'
+                                     docker run -d \
+                                       --name devops-app \
+                                       --restart unless-stopped \
+                                       -p 8080:8080 \
+                                       '${ECR_URI}:${IMAGE_TAG}'
 
-                             echo 'Deployment completed.'
-                             docker ps --filter name=devops-app
-                            "
-                    '''
+                                     echo 'Deployment completed.'
+                                     docker ps --filter name=devops-app
+                                    "
+                            '''
+                        }
+                    }
                 }
             }
         }
